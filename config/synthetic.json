@@ -1,0 +1,31 @@
+{
+  "fixture_only": true,
+  "synthetic_seed": 8408,
+  "split": {
+    "algorithm": "sha256_subject",
+    "train_ratio": 0.6,
+    "validation_ratio": 0.2,
+    "test_ratio": 0.2
+  },
+  "labels": {
+    "selection": "all_training_labels",
+    "minimum_support": 1
+  },
+  "tokenizer": {
+    "identifier": "synthetic-whitespace-tokenizer",
+    "revision": "test-v1",
+    "maximum_length": 8,
+    "truncation_side": "right",
+    "padding": "max_length"
+  },
+  "evaluation": {
+    "threshold_candidates": [0.25, 0.5, 0.75],
+    "objective": "micro_f1",
+    "tie_break": "lowest_threshold",
+    "precision_at_k": {
+      "mode": "ranked_descending_score",
+      "ks": [5, 10],
+      "short_label_policy": "available"
+    }
+  }
+}

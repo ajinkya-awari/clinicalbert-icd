@@ -1,0 +1,67 @@
+# Python-generated local state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Credentials and private keys
+.env
+.env.*
+*.key
+*.pem
+credentials*.json
+secrets/
+
+# Raw or derived clinical-data locations and common tabular artifacts
+/data/
+/private/
+NOTEEVENTS*
+DIAGNOSES_ICD*
+*.csv
+*.jsonl
+*.tsv
+*.parquet
+*.feather
+*.arrow
+*.csv.gz
+*.csv.bz2
+*.csv.xz
+*.jsonl.gz
+*.jsonl.bz2
+*.jsonl.xz
+*.tsv.gz
+*.tsv.bz2
+*.tsv.xz
+
+# Live/private manifests; retain the declarative schema in source control
+manifests/rights_environment*.json
+!manifests/rights_environment.schema.json
+manifests/private/
+
+# Model, checkpoint, experiment, and external-logger artifacts
+/checkpoints/
+/models/
+/outputs/
+/weights/
+/artifacts/private/
+/runs/
+/wandb/
+/mlruns/
+/.cache/
+/.huggingface/
+/hf_cache/
+/transformers_cache/
+*.bin
+*.ckpt
+*.h5
+*.hdf5
+*.joblib
+*.onnx
+*.pickle
+*.pkl
+*.pt
+*.pth
+*.safetensors

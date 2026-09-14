@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "policy_id": "project-08-default-deny-artifacts-v1",
+  "release_authorized": false,
+  "validation_only_destinations": [
+    "public_model_card",
+    "public_report",
+    "public_repository"
+  ],
+  "allowed_artifact_classes": [
+    "aggregate_metrics",
+    "documentation",
+    "non_sensitive_provenance"
+  ],
+  "required_false_flags": [
+    "contains_raw_data",
+    "contains_identifiers",
+    "contains_row_level_data",
+    "contains_checkpoints"
+  ],
+  "content_contracts": {
+    "aggregate_metrics": ["metrics", "limitations"],
+    "documentation": ["title", "summary", "limitations"],
+    "non_sensitive_provenance": ["provenance"]
+  },
+  "aggregate_metric_fields": [
+    "macro_f1",
+    "micro_f1",
+    "parameter_count",
+    "precision_at_10",
+    "precision_at_5",
+    "record_count",
+    "runtime_seconds",
+    "uncertainty"
+  ],
+  "forbidden_content_classes": [
+    "raw_note_text",
+    "patient_or_admission_identifiers",
+    "row_level_membership",
+    "secrets_or_credentials",
+    "checkpoints_or_model_weights"
+  ],
+  "required_release_gates": [
+    "explicit_release_approval",
+    "completed_privacy_review",
+    "artifact_digest",
+    "destination_specific_rollback_plan"
+  ],
+  "note": "A passing privacy audit does not authorize release."
+}

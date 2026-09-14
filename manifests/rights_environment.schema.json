@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/project-08/rights-environment.schema.json",
+  "title": "Project 08 Rights and Environment Manifest",
+  "description": "Schema only. This file is not evidence of rights or approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "fixture_only",
+    "dataset_reference",
+    "source_revision",
+    "data_use_terms_reference",
+    "rights_status",
+    "rights_expires_on",
+    "decision_reference",
+    "approved_locations",
+    "kaggle_allowed",
+    "raw_transfer_allowed_locations",
+    "retention_policy_reference",
+    "artifact_policy_reference"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "fixture_only": {"type": "boolean"},
+    "dataset_reference": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "source_revision": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "data_use_terms_reference": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "rights_status": {
+      "enum": ["approved", "pending", "denied", "revoked", "expired"]
+    },
+    "rights_expires_on": {"type": "string", "format": "date"},
+    "decision_reference": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "approved_locations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+    },
+    "kaggle_allowed": {"type": "boolean"},
+    "raw_transfer_allowed_locations": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "pattern": "\\S"}
+    },
+    "retention_policy_reference": {"type": "string", "minLength": 1, "pattern": "\\S"},
+    "artifact_policy_reference": {"type": "string", "minLength": 1, "pattern": "\\S"}
+  }
+}

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "clinicalbert-icd"
+version = "0.1.0"
+description = "Leakage-safe comparison of LoRA and full fine-tuning for ICD-9 multi-label classification on clinical discharge summaries"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+authors = [
+  { name = "Ajinkya Awari", email = "ajinkyaawari.skncoe.comp@gmail.com" },
+]
+keywords = [
+  "clinical-nlp",
+  "icd-coding",
+  "lora",
+  "multi-label-classification",
+  "mimic-iii",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
+# Runtime dependencies: standard library only (offline contracts, synthetic tests)
+# Third-party dependencies (transformers, peft, torch, scikit-learn, pandas)
+# are required for MIMIC benchmark execution only; install separately in an
+# approved secure environment per the governance manifest.
+dependencies = []
+
+[project.optional-dependencies]
+# Approved Kaggle/benchmark environment only — not for local laptop use.
+# Exact pinned revisions must be recorded in the rights manifest before use.
+benchmark = [
+  "torch",
+  "transformers",
+  "peft",
+  "scikit-learn",
+  "pandas",
+  "numpy",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
