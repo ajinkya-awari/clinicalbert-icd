@@ -4,9 +4,11 @@ Leakage-safe comparison of LoRA and full fine-tuning for ICD-9 multi-label class
 
 ---
 
-## Status — 2026-08-27
+## Status â€” 2026-09-14
 
-**Pre-results. Local contracts and offline test scaffolding are present. No current test execution, MIMIC-III training, model loading, or clinical evaluation has run.**
+**Pre-results. Local contracts and synthetic test scaffolding are present. No MIMIC-III training, model loading, or clinical evaluation has run.**
+
+**Repository:** https://github.com/ajinkya-awari/clinicalbert-icd Â· commit `20f63d1`
 
 | Layer | State |
 |---|---|
@@ -17,11 +19,11 @@ Leakage-safe comparison of LoRA and full fine-tuning for ICD-9 multi-label class
 | LoRA / full fine-tuning trainability audits | Implemented; historical synthetic evidence only |
 | Validation-only threshold selection | Implemented; historical synthetic evidence only |
 | Untouched-test evaluation session | Implemented; historical synthetic evidence only |
-| Command and commit guards (blocks accidental data/API leakage) | Implemented; current changes require Kaggle execution evidence |
-| MIMIC-III data access | **Blocked — PhysioNet DUA approval required** |
-| Dependency installation / model download | **Blocked — Kaggle approval required** |
+| Command and commit guards (blocks accidental data/API leakage) | Implemented; Kaggle CPU synthetic suite run (evidence pending download) |
+| MIMIC-III data access | **Blocked â€” PhysioNet DUA approval required** |
+| Dependency installation / model download | **Blocked â€” Kaggle approval required** |
 | Training, evaluation metrics, results | **Not yet run** |
-| Release / HuggingFace / GitHub push | **Not yet authorized** |
+| Public repository | **Live** â€” https://github.com/ajinkya-awari/clinicalbert-icd |
 
 Results (micro-F1, macro-F1, P@K, AUC) will be added here after the approved Kaggle training run.
 
@@ -41,7 +43,7 @@ Does parameter-efficient fine-tuning (LoRA) match or exceed full fine-tuning for
 | `clinicalbert_full` | ClinicalBERT | Full fine-tuning |
 | `bert_lora` | General BERT | LoRA |
 | `bert_full` | General BERT | Full fine-tuning |
-| `rule` | Frequency-weighted rule baseline | — |
+| `rule` | Frequency-weighted rule baseline | â€” |
 
 All five systems share a single label vocabulary (fit on training split only) and are evaluated on one untouched test partition.
 
@@ -50,8 +52,8 @@ All five systems share a single label vocabulary (fit on training split only) an
 ## Data requirements
 
 **MIMIC-III access is required.** This project uses:
-- `NOTEEVENTS.csv` — discharge summary text
-- `DIAGNOSES_ICD.csv` — native ICD-9 codes (not ICD-10, not GEM-converted)
+- `NOTEEVENTS.csv` â€” discharge summary text
+- `DIAGNOSES_ICD.csv` â€” native ICD-9 codes (not ICD-10, not GEM-converted)
 
 Access requires a PhysioNet credentialed account and completion of the CITI human-subjects training course. Apply at [physionet.org](https://physionet.org/register/). Approval typically takes one to two weeks.
 
@@ -86,10 +88,10 @@ This audit inspected all Markdown, source, tests, notebook, config, manifest, ho
 
 ## Privacy and governance controls
 
-- **Data governance gate**: `src/clinicalbert_icd/governance.py` — fail-closed; any access attempt without a signed DUA manifest is denied.
-- **Privacy audit**: `src/clinicalbert_icd/privacy.py` — scans public artifact dicts for note text, patient identifiers, model secrets, and checkpoint paths before release.
-- **Pre-commit hook**: `.claude/hooks/pre-commit.sh` — blocks staged MIMIC paths, `.env` files, PEM keys, HF tokens, `sk-` style API keys, and AWS AKIA keys.
-- **Command guard**: `.claude/hooks/pre-tool-use.sh` — blocks Python training calls, `from_pretrained`, `kaggle`, `curl`/`wget`, W&B, HuggingFace CLI upload, and `git push` in the local session.
+- **Data governance gate**: `src/clinicalbert_icd/governance.py` â€” fail-closed; any access attempt without a signed DUA manifest is denied.
+- **Privacy audit**: `src/clinicalbert_icd/privacy.py` â€” scans public artifact dicts for note text, patient identifiers, model secrets, and checkpoint paths before release.
+- **Pre-commit hook**: `.claude/hooks/pre-commit.sh` â€” blocks staged MIMIC paths, `.env` files, PEM keys, HF tokens, `sk-` style API keys, and AWS AKIA keys.
+- **Command guard**: `.claude/hooks/pre-tool-use.sh` â€” blocks Python training calls, `from_pretrained`, `kaggle`, `curl`/`wget`, W&B, HuggingFace CLI upload, and `git push` in the local session.
 
 ---
 
@@ -107,32 +109,32 @@ This audit inspected all Markdown, source, tests, notebook, config, manifest, ho
 
 ```
 08-f3-clinicalbert-icd/
-├── src/clinicalbert_icd/
-│   ├── governance.py          # Fail-closed DUA and environment contracts
-│   ├── privacy.py             # Public-artifact PHI and secret scan
-│   ├── data/
-│   │   ├── contracts.py       # Immutable data contracts (dedup, split, labels, tokenizer)
-│   │   ├── prepare.py         # Admission deduplication and example aggregation
-│   │   ├── split.py           # SUBJECT_ID-grouped SHA-256 deterministic split
-│   │   ├── labels.py          # Train-only label fitting and transform
-│   │   └── tokenize.py        # Tokenizer protocol and truncation audit
-│   ├── models/
-│   │   ├── protocol.py        # ModelSpec frozen dataclass
-│   │   ├── registry.py        # Five-system registry validator
-│   │   └── trainability.py    # LoRA adapter and classifier-head trainability audits
-│   ├── evaluation/
-│   │   ├── metrics.py         # Micro/macro F1, P@K, AUC
-│   │   ├── thresholds.py      # Validation-only global threshold selection
-│   │   ├── test_session.py    # Single-use untouched-test partition gate
-│   │   └── provenance.py      # Deterministic run provenance and command whitelist
-│   └── training/
-│       └── gates.py           # Training authorization gate (blocks live-data training locally)
-├── tests/                     # 171 synthetic standard-library unit tests
-├── notebooks/                 # Gated Kaggle training notebook (cells require explicit approval)
-├── manifests/                 # Artifact policy and rights environment schema
-├── config/synthetic.json      # Synthetic run configuration
-├── DESIGN.md                  # Full pipeline specification
-└── FINAL_VULNERABILITY_SCAN.md # Critical controls and high-risk areas
+â”œâ”€â”€ src/clinicalbert_icd/
+â”‚   â”œâ”€â”€ governance.py          # Fail-closed DUA and environment contracts
+â”‚   â”œâ”€â”€ privacy.py             # Public-artifact PHI and secret scan
+â”‚   â”œâ”€â”€ data/
+â”‚   â”‚   â”œâ”€â”€ contracts.py       # Immutable data contracts (dedup, split, labels, tokenizer)
+â”‚   â”‚   â”œâ”€â”€ prepare.py         # Admission deduplication and example aggregation
+â”‚   â”‚   â”œâ”€â”€ split.py           # SUBJECT_ID-grouped SHA-256 deterministic split
+â”‚   â”‚   â”œâ”€â”€ labels.py          # Train-only label fitting and transform
+â”‚   â”‚   â””â”€â”€ tokenize.py        # Tokenizer protocol and truncation audit
+â”‚   â”œâ”€â”€ models/
+â”‚   â”‚   â”œâ”€â”€ protocol.py        # ModelSpec frozen dataclass
+â”‚   â”‚   â”œâ”€â”€ registry.py        # Five-system registry validator
+â”‚   â”‚   â””â”€â”€ trainability.py    # LoRA adapter and classifier-head trainability audits
+â”‚   â”œâ”€â”€ evaluation/
+â”‚   â”‚   â”œâ”€â”€ metrics.py         # Micro/macro F1, P@K, AUC
+â”‚   â”‚   â”œâ”€â”€ thresholds.py      # Validation-only global threshold selection
+â”‚   â”‚   â”œâ”€â”€ test_session.py    # Single-use untouched-test partition gate
+â”‚   â”‚   â””â”€â”€ provenance.py      # Deterministic run provenance and command whitelist
+â”‚   â””â”€â”€ training/
+â”‚       â””â”€â”€ gates.py           # Training authorization gate (blocks live-data training locally)
+â”œâ”€â”€ tests/                     # 171 synthetic standard-library unit tests
+â”œâ”€â”€ notebooks/                 # Gated Kaggle training notebook (cells require explicit approval)
+â”œâ”€â”€ manifests/                 # Artifact policy and rights environment schema
+â”œâ”€â”€ config/synthetic.json      # Synthetic run configuration
+â”œâ”€â”€ DESIGN.md                  # Full pipeline specification
+â””â”€â”€ FINAL_VULNERABILITY_SCAN.md # Critical controls and high-risk areas
 ```
 
 ---
@@ -150,6 +152,6 @@ This audit inspected all Markdown, source, tests, notebook, config, manifest, ho
 ## Portfolio context
 
 This is Project 08 in a 21-project pre-UCL portfolio. It targets AI/healthcare engineering roles at UK companies including Kheiron Medical, Medtronic, and NHS AI Lab. The companion projects include:
-- Project 07 (F2 HistoGNN) — graph-based histopathology classification
-- Project 09 (NHSCopilot-Eval) — evaluation harness for NHS-facing LLM tools
-- Project 13 (ClinVision) — clinical image classification pipeline
+- Project 07 (F2 HistoGNN) â€” graph-based histopathology classification
+- Project 09 (NHSCopilot-Eval) â€” evaluation harness for NHS-facing LLM tools
+- Project 13 (ClinVision) â€” clinical image classification pipeline
