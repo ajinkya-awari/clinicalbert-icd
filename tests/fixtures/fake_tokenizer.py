@@ -11,8 +11,8 @@ from typing import ClassVar
 class FakeTokenizer:
     identifier: str = "synthetic-whitespace-tokenizer"
     revision: str = "test-v1"
-    prefix_special_token_ids: tuple[int, ...] = (101,)
-    suffix_special_token_ids: tuple[int, ...] = (102,)
+    prefix_token_ids: tuple[int, ...] = (101,)
+    suffix_token_ids: tuple[int, ...] = (102,)
     pad_token_id: int = 0
 
     _TOKEN_IDS: ClassVar[MappingProxyType[str, int]] = MappingProxyType(
@@ -28,3 +28,4 @@ class FakeTokenizer:
 
     def encode_content(self, text: str) -> tuple[int, ...]:
         return tuple(self._TOKEN_IDS.get(token, 99) for token in text.split())
+

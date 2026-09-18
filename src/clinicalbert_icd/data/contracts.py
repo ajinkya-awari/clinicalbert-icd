@@ -1,81 +1,59 @@
-"""Immutable contracts for the offline synthetic data pipeline."""
-
 from __future__ import annotations
 
-import hashlib
-import json
-import math
 import re
 from dataclasses import dataclass
-from math import isclose
+from typing import Any
 
 
-_PARTITIONS = frozenset({"train", "validation", "test"})
-_PARTITION_ORDER = ("train", "validation", "test")
-_ICD9_PATTERN = re.compile(
-    r"^(?:[0-9]{3,5}|[0-9]{3}\.[0-9]{1,2}|V[0-9]{2,4}|"
-    r"V[0-9]{2}\.[0-9]{1,2}|E[0-9]{3,5}|E[0-9]{3}\.[0-9]{1,2})$"
-)
-_HEX64 = re.compile(r"[0-9a-f]{64}\Z")
-_COMMIT_REVISION = re.compile(r"commit:[0-9a-f]{40,64}\Z")
-_SHA256_REVISION = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_TEST_REVISION = re.compile(r"test(?::|-)[A-Za-z0-9][A-Za-z0-9._-]*\Z")
+# ── identifier helpers ─────────────────────────────────────────────────────────
 
-
-def _require_nonempty_string(name: str, value: object) -> None:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a non-empty string")
-
-
-def _canonical_identifier(
-    name: str, value: object, *, reject_surrounding_whitespace: bool
-) -> str:
-    if type(value) is int:
+def _canonical_id(value: Any, name: str) -> str:
+    if isinstance(value, bool):
+        raise ValueError(f"{name}: bool not accepted")
+    if isinstance(value, int):
         return str(value)
-    if type(value) is not str:
-        raise ValueError(f"{name} must be a string or integer identifier")
-    normalized = value.strip()
-    if not normalized:
-        raise ValueError(f"{name} must be a non-empty identifier")
-    if reject_surrounding_whitespace and normalized != value:
-        raise ValueError(f"{name} must already be canonical without surrounding whitespace")
-    return normalized
+    if isinstance(value, str):
+        if not value or value != value.strip():
+            raise ValueError(f"{name}: must be non-empty with no surrounding whitespace")
+        return value
+    raise ValueError(f"{name}: must be str or int, got {type(value).__name__}")
 
 
-def _canonical_icd9(value: object, *, reject_surrounding_whitespace: bool) -> str:
-    if type(value) is not str:
-        raise ValueError("ICD-9 value must be a string")
-    normalized = value.strip()
-    if reject_surrounding_whitespace and normalized != value:
-        raise ValueError("ICD-9 value must already be canonical")
-    if not _ICD9_PATTERN.fullmatch(normalized):
-        raise ValueError("invalid native ICD-9 lexical value")
-    return normalized
+# ── ICD-9 format check (native codes only, no crosswalk) ──────────────────────
+
+_ICD9_RE = re.compile(
+    r"^(?:V\d{2,4}(?:\.\d{1,2})?|E\d{3,4}(?:\.\d{1,2})?|\d{3,5}(?:\.\d{1,2})?)$"
+)
 
 
-def _label_vocabulary_digest(vocabulary: tuple[str, ...]) -> str:
-    payload = json.dumps(
-        vocabulary, ensure_ascii=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()
+def _validate_icd9(code: str) -> None:
+    if not _ICD9_RE.match(code):
+        raise ValueError(f"invalid native ICD-9 code: {code!r}")
 
 
-def _tokenizer_revision_valid(identifier: str, revision: str) -> bool:
-    if _COMMIT_REVISION.fullmatch(revision) or _SHA256_REVISION.fullmatch(revision):
-        return True
-    return identifier.startswith("synthetic-") and _TEST_REVISION.fullmatch(revision) is not None
+# ── deduplication ──────────────────────────────────────────────────────────────
 
+@dataclass(frozen=True, slots=True)
+class NoteRecord:
+    subject_id: str
+    hadm_id: str
+    text: str
+    category: str
+    order_value: Any
+    tie_break_values: tuple
 
-def _nonnegative_int(name: str, value: object) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a non-negative integer")
-
-
-def _deterministic_scalar(name: str, value: object) -> None:
-    if type(value) not in (str, int, float):
-        raise ValueError(f"{name} must contain deterministic scalar values")
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(f"{name} must contain finite scalar values")
+    def __post_init__(self) -> None:
+        for v in self.tie_break_values:
+            if isinstance(v, bool):
+                raise ValueError("tie_break_values: bool not accepted")
+            if isinstance(v, float) and (v != v or abs(v) == float("inf")):
+                raise ValueError("tie_break_values: nan/inf not accepted")
+            if isinstance(v, (list, dict)):
+                raise ValueError("tie_break_values: mutable collections not accepted")
+            try:
+                hash(v)
+            except TypeError as exc:
+                raise ValueError(f"tie_break_values: unhashable {type(v).__name__}") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,54 +62,13 @@ class DedupPolicy:
     category_value: str
     order_field: str
     keep: str
-    tie_break_fields: tuple[str, ...]
+    tie_break_fields: tuple
 
     def __post_init__(self) -> None:
-        _require_nonempty_string("category_field", self.category_field)
-        _require_nonempty_string("category_value", self.category_value)
-        _require_nonempty_string("order_field", self.order_field)
-        if self.keep not in {"earliest", "latest"}:
-            raise ValueError("keep must be 'earliest' or 'latest'")
-        if not isinstance(self.tie_break_fields, tuple) or not self.tie_break_fields:
-            raise ValueError("tie_break_fields must be an explicit non-empty tuple")
-        if any(not isinstance(field, str) or not field for field in self.tie_break_fields):
-            raise ValueError("tie_break_fields must contain non-empty strings")
-        if len(set(self.tie_break_fields)) != len(self.tie_break_fields):
-            raise ValueError("tie_break_fields must be unique")
-
-
-@dataclass(frozen=True, slots=True)
-class NoteRecord:
-    subject_id: str
-    hadm_id: str
-    text: str
-    category: str
-    order_value: str | int | float
-    tie_break_values: tuple[str | int | float, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "subject_id",
-            _canonical_identifier(
-                "subject_id", self.subject_id, reject_surrounding_whitespace=True
-            ),
-        )
-        object.__setattr__(
-            self,
-            "hadm_id",
-            _canonical_identifier(
-                "hadm_id", self.hadm_id, reject_surrounding_whitespace=True
-            ),
-        )
-        if not isinstance(self.text, str):
-            raise ValueError("text must be a string")
-        _require_nonempty_string("category", self.category)
-        _deterministic_scalar("order_value", self.order_value)
-        if not isinstance(self.tie_break_values, tuple):
-            raise ValueError("tie_break_values must be a tuple")
-        for value in self.tie_break_values:
-            _deterministic_scalar("tie_break_values", value)
+        if not isinstance(self.tie_break_fields, tuple):
+            raise ValueError("tie_break_fields must be a tuple")
+        if self.keep not in ("latest", "earliest"):
+            raise ValueError(f"keep must be 'latest' or 'earliest', got {self.keep!r}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,90 +77,176 @@ class DedupAudit:
     eligible_record_count: int
     output_record_count: int
     dropped_record_count: int
-    duplicate_admission_count: int
+    duplicate_record_count: int
 
     def __post_init__(self) -> None:
-        for name, value in (
-            ("input_record_count", self.input_record_count),
-            ("eligible_record_count", self.eligible_record_count),
-            ("output_record_count", self.output_record_count),
-            ("dropped_record_count", self.dropped_record_count),
-            ("duplicate_admission_count", self.duplicate_admission_count),
-        ):
-            _nonnegative_int(name, value)
+        fields = (
+            self.input_record_count,
+            self.eligible_record_count,
+            self.output_record_count,
+            self.dropped_record_count,
+            self.duplicate_record_count,
+        )
+        if any(c < 0 for c in fields):
+            raise ValueError("all counts must be non-negative")
         if self.eligible_record_count > self.input_record_count:
-            raise ValueError("eligible record count exceeds input record count")
+            raise ValueError("eligible_record_count > input_record_count")
         if self.output_record_count > self.eligible_record_count:
-            raise ValueError("output record count exceeds eligible record count")
-        if self.dropped_record_count != (
-            self.eligible_record_count - self.output_record_count
-        ):
-            raise ValueError("dropped record count is inconsistent")
+            raise ValueError("output_record_count > eligible_record_count")
+        if self.dropped_record_count + self.output_record_count != self.eligible_record_count:
+            raise ValueError("dropped + output != eligible")
         if self.eligible_record_count > 0 and self.output_record_count == 0:
-            raise ValueError("eligible records require at least one output record")
-        if self.dropped_record_count > 0 and self.duplicate_admission_count == 0:
-            raise ValueError("dropped records require at least one duplicate admission")
-        if self.duplicate_admission_count > min(
-            self.output_record_count, self.dropped_record_count
-        ):
-            raise ValueError("duplicate admission count is inconsistent")
+            raise ValueError("eligible records present but output_record_count is zero")
+        if self.dropped_record_count > 0 and self.duplicate_record_count == 0:
+            raise ValueError("records were dropped but duplicate_record_count is zero")
+        if self.dropped_record_count == 0 and self.duplicate_record_count > 0:
+            raise ValueError("duplicate_record_count > 0 but dropped_record_count is zero")
+        if self.duplicate_record_count > self.dropped_record_count:
+            raise ValueError("duplicate_record_count > dropped_record_count")
 
 
 @dataclass(frozen=True, slots=True)
 class DedupResult:
-    records: tuple[NoteRecord, ...]
+    records: tuple
     audit: DedupAudit
 
     def __post_init__(self) -> None:
-        if not isinstance(self.records, tuple) or not self.records:
-            raise ValueError("dedup result records must be a non-empty tuple")
-        if any(not isinstance(record, NoteRecord) for record in self.records):
-            raise ValueError("dedup result contains invalid records")
-        if not isinstance(self.audit, DedupAudit):
-            raise ValueError("dedup result audit is invalid")
-        if self.audit.output_record_count != len(self.records):
-            raise ValueError("dedup result audit does not match records")
-        admission_ids = tuple(record.hadm_id for record in self.records)
-        if len(admission_ids) != len(set(admission_ids)):
-            raise ValueError("dedup result contains duplicate admissions")
+        if not isinstance(self.records, tuple):
+            raise ValueError("records must be a tuple")
+        if len(self.records) == 0:
+            raise ValueError("records must not be empty")
+        if len(self.records) != self.audit.output_record_count:
+            raise ValueError(
+                f"len(records)={len(self.records)} != audit.output_record_count="
+                f"{self.audit.output_record_count}"
+            )
+        seen: set[str] = set()
+        for r in self.records:
+            if r.hadm_id in seen:
+                raise ValueError(f"duplicate hadm_id {r.hadm_id!r} in records")
+            seen.add(r.hadm_id)
 
+
+# ── admission examples ─────────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
 class AdmissionExample:
     subject_id: str
     hadm_id: str
     text: str
-    labels: tuple[str, ...]
+    labels: tuple
     partition: str | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "subject_id",
-            _canonical_identifier(
-                "subject_id", self.subject_id, reject_surrounding_whitespace=True
-            ),
-        )
-        object.__setattr__(
-            self,
-            "hadm_id",
-            _canonical_identifier(
-                "hadm_id", self.hadm_id, reject_surrounding_whitespace=True
-            ),
-        )
-        if not isinstance(self.text, str):
-            raise ValueError("text must be a string")
-        if not isinstance(self.labels, tuple) or not self.labels:
-            raise ValueError("labels must be a non-empty tuple")
-        canonical_labels = tuple(
-            _canonical_icd9(label, reject_surrounding_whitespace=True)
-            for label in self.labels
-        )
-        if len(canonical_labels) != len(set(canonical_labels)):
-            raise ValueError("labels must be unique within an admission")
-        if self.partition is not None and self.partition not in _PARTITIONS:
-            raise ValueError("partition must be train, validation, test, or None")
+        object.__setattr__(self, "subject_id", _canonical_id(self.subject_id, "subject_id"))
+        object.__setattr__(self, "hadm_id", _canonical_id(self.hadm_id, "hadm_id"))
+        if not isinstance(self.labels, tuple):
+            raise ValueError("labels must be a tuple")
+        if len(self.labels) == 0:
+            raise ValueError("labels must not be empty")
+        seen: set[str] = set()
+        for lbl in self.labels:
+            if not isinstance(lbl, str) or lbl != lbl.strip() or not lbl:
+                raise ValueError(f"label {lbl!r}: must be a non-empty stripped string")
+            _validate_icd9(lbl)
+            if lbl in seen:
+                raise ValueError(f"duplicate label {lbl!r}")
+            seen.add(lbl)
 
+
+# ── label contracts ────────────────────────────────────────────────────────────
+
+@dataclass(frozen=True, slots=True)
+class LabelConfig:
+    selection: str
+    minimum_support: int
+
+    def __post_init__(self) -> None:
+        if self.selection != "all_training_labels":
+            raise ValueError(
+                f"selection must be 'all_training_labels', got {self.selection!r}"
+            )
+        if self.minimum_support < 1:
+            raise ValueError(f"minimum_support must be >= 1, got {self.minimum_support}")
+
+
+@dataclass(frozen=True, slots=True)
+class LabelFitAudit:
+    training_example_count: int
+    vocabulary_size: int
+
+    def __post_init__(self) -> None:
+        if self.training_example_count < 0:
+            raise ValueError("training_example_count must be non-negative")
+        if self.vocabulary_size < 0:
+            raise ValueError("vocabulary_size must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class LabelContract:
+    selection: str
+    minimum_support: int
+    vocabulary: tuple
+    vocabulary_hash: str
+    audit: LabelFitAudit
+
+    def __post_init__(self) -> None:
+        if len(self.vocabulary) == 0:
+            raise ValueError("vocabulary must not be empty")
+        if len(self.vocabulary) != len(set(self.vocabulary)):
+            raise ValueError("vocabulary contains duplicates")
+        if not re.match(r"^[0-9a-f]{64}$", self.vocabulary_hash):
+            raise ValueError("vocabulary_hash must be 64 lowercase hex characters")
+        if self.vocabulary_hash == "0" * 64:
+            raise ValueError("vocabulary_hash must not be the zero hash")
+        if self.audit.vocabulary_size != len(self.vocabulary):
+            raise ValueError(
+                f"audit.vocabulary_size={self.audit.vocabulary_size} != "
+                f"len(vocabulary)={len(self.vocabulary)}"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class LabelTransformAudit:
+    example_count: int
+    unknown_label_count: int
+    examples_with_unknown_labels: int
+
+    def __post_init__(self) -> None:
+        if self.example_count < 0:
+            raise ValueError("example_count must be non-negative")
+        if self.unknown_label_count < 0:
+            raise ValueError("unknown_label_count must be non-negative")
+        if self.examples_with_unknown_labels < 0:
+            raise ValueError("examples_with_unknown_labels must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedLabels:
+    rows: tuple
+    vocabulary_hash: str
+    audit: LabelTransformAudit
+
+    def __post_init__(self) -> None:
+        if not re.match(r"^[0-9a-f]{64}$", self.vocabulary_hash):
+            raise ValueError("vocabulary_hash must be 64 lowercase hex characters")
+        if self.audit.example_count != len(self.rows):
+            raise ValueError(
+                f"audit.example_count={self.audit.example_count} != "
+                f"len(rows)={len(self.rows)}"
+            )
+        if len(self.rows) == 0:
+            return
+        row_len = len(self.rows[0])
+        for row in self.rows:
+            if len(row) != row_len:
+                raise ValueError("all rows must have the same length")
+            for v in row:
+                if v not in (0, 1):
+                    raise ValueError(f"row values must be 0 or 1, got {v!r}")
+
+
+# ── split contracts ────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
 class SplitConfig:
@@ -235,217 +258,82 @@ class SplitConfig:
 
     def __post_init__(self) -> None:
         if self.algorithm != "sha256_subject":
-            raise ValueError("algorithm must be 'sha256_subject'")
-        if not isinstance(self.seed, int) or isinstance(self.seed, bool):
-            raise ValueError("seed must be an explicit integer")
-        ratios = (self.train_ratio, self.validation_ratio, self.test_ratio)
-        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in ratios):
-            raise ValueError("split ratios must be numeric")
-        if any(value <= 0 or value >= 1 for value in ratios):
-            raise ValueError("split ratios must each be between zero and one")
-        if not isclose(sum(ratios), 1.0, rel_tol=0.0, abs_tol=1e-12):
-            raise ValueError("split ratios must sum to one")
-
-    @property
-    def ratios(self) -> tuple[float, float, float]:
-        return (self.train_ratio, self.validation_ratio, self.test_ratio)
+            raise ValueError(
+                f"algorithm must be 'sha256_subject', got {self.algorithm!r}"
+            )
+        total = self.train_ratio + self.validation_ratio + self.test_ratio
+        if abs(total - 1.0) > 1e-9:
+            raise ValueError(f"ratios must sum to 1.0, got {total}")
 
 
 @dataclass(frozen=True, slots=True)
 class SplitAudit:
     algorithm: str
     seed: int
-    ratios: tuple[float, float, float]
-    subject_counts: tuple[tuple[str, int], ...]
-    admission_counts: tuple[tuple[str, int], ...]
+    ratios: tuple
+    subject_counts: tuple
+    admission_counts: tuple
 
     def __post_init__(self) -> None:
-        if not isinstance(self.ratios, tuple) or len(self.ratios) != 3:
-            raise ValueError("split audit ratios are invalid")
-        SplitConfig(self.algorithm, self.seed, *self.ratios)
-        for name, counts in (
-            ("subject_counts", self.subject_counts),
-            ("admission_counts", self.admission_counts),
-        ):
-            if (
-                not isinstance(counts, tuple)
-                or tuple(item[0] for item in counts if isinstance(item, tuple) and len(item) == 2)
-                != _PARTITION_ORDER
-                or len(counts) != len(_PARTITION_ORDER)
-                or any(
-                    not isinstance(item, tuple)
-                    or len(item) != 2
-                    or type(item[1]) is not int
-                    or item[1] < 0
-                    for item in counts
-                )
-            ):
-                raise ValueError(f"split audit {name} are invalid")
+        if self.algorithm != "sha256_subject":
+            raise ValueError(
+                f"algorithm must be 'sha256_subject', got {self.algorithm!r}"
+            )
+        for _, count in self.subject_counts:
+            if count < 0:
+                raise ValueError("subject counts must be non-negative")
+        for _, count in self.admission_counts:
+            if count < 0:
+                raise ValueError("admission counts must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)
 class SplitAssignment:
-    train: tuple[AdmissionExample, ...]
-    validation: tuple[AdmissionExample, ...]
-    test: tuple[AdmissionExample, ...]
+    train: tuple
+    validation: tuple
+    test: tuple
     audit: SplitAudit
 
     def __post_init__(self) -> None:
-        partitions = {
+        partition_map = {
             "train": self.train,
             "validation": self.validation,
             "test": self.test,
         }
-        if not isinstance(self.audit, SplitAudit):
-            raise ValueError("split audit is invalid")
-        if any(not isinstance(values, tuple) for values in partitions.values()):
-            raise ValueError("split partitions must be tuples")
-        all_examples = tuple(
-            example for values in partitions.values() for example in values
-        )
-        if not all_examples:
-            raise ValueError("split assignment cannot be empty")
-        if any(not isinstance(example, AdmissionExample) for example in all_examples):
-            raise ValueError("split assignment examples are invalid")
-        if any(
-            example.partition != partition
-            for partition, values in partitions.items()
-            for example in values
-        ):
-            raise ValueError("split partition tag mismatch")
-        admission_ids = [example.hadm_id for example in all_examples]
-        if len(admission_ids) != len(set(admission_ids)):
-            raise ValueError("duplicate admission in split assignment")
-        subject_sets = {
-            partition: {example.subject_id for example in values}
-            for partition, values in partitions.items()
+        for part_name, examples in partition_map.items():
+            for ex in examples:
+                if ex.partition != part_name:
+                    raise ValueError(
+                        f"example {ex.hadm_id!r} has partition={ex.partition!r} "
+                        f"but is in {part_name!r} tuple"
+                    )
+        train_subjects = {ex.subject_id for ex in self.train}
+        val_subjects = {ex.subject_id for ex in self.validation}
+        test_subjects = {ex.subject_id for ex in self.test}
+        overlap_tv = train_subjects & val_subjects
+        overlap_tt = train_subjects & test_subjects
+        overlap_vt = val_subjects & test_subjects
+        if overlap_tv or overlap_tt or overlap_vt:
+            raise ValueError(
+                f"subject overlap detected: train∩val={overlap_tv}, "
+                f"train∩test={overlap_tt}, val∩test={overlap_vt}"
+            )
+        expected_admission_counts = {
+            "train": len(self.train),
+            "validation": len(self.validation),
+            "test": len(self.test),
         }
-        for left, right in (
-            ("train", "validation"),
-            ("train", "test"),
-            ("validation", "test"),
-        ):
-            if subject_sets[left] & subject_sets[right]:
-                raise ValueError(f"subject overlap between {left} and {right}")
-        subject_counts = tuple(
-            (partition, len(subject_sets[partition])) for partition in _PARTITION_ORDER
-        )
-        admission_counts = tuple(
-            (partition, len(partitions[partition])) for partition in _PARTITION_ORDER
-        )
-        if (
-            self.audit.subject_counts != subject_counts
-            or self.audit.admission_counts != admission_counts
-        ):
-            raise ValueError("split audit counts do not match assignment")
+        actual_audit_counts = dict(self.audit.admission_counts)
+        for part_name, expected in expected_admission_counts.items():
+            actual = actual_audit_counts.get(part_name, 0)
+            if actual != expected:
+                raise ValueError(
+                    f"audit.admission_counts[{part_name!r}]={actual} != "
+                    f"len({part_name})={expected}"
+                )
 
 
-@dataclass(frozen=True, slots=True)
-class LabelConfig:
-    selection: str
-    minimum_support: int
-
-    def __post_init__(self) -> None:
-        if self.selection != "all_training_labels":
-            raise ValueError("selection must be 'all_training_labels'")
-        if (
-            not isinstance(self.minimum_support, int)
-            or isinstance(self.minimum_support, bool)
-            or self.minimum_support < 1
-        ):
-            raise ValueError("minimum_support must be a positive integer")
-
-
-@dataclass(frozen=True, slots=True)
-class LabelFitAudit:
-    training_example_count: int
-    vocabulary_size: int
-
-    def __post_init__(self) -> None:
-        if type(self.training_example_count) is not int or self.training_example_count < 1:
-            raise ValueError("training_example_count must be positive")
-        if type(self.vocabulary_size) is not int or self.vocabulary_size < 1:
-            raise ValueError("vocabulary_size must be positive")
-
-
-@dataclass(frozen=True, slots=True)
-class LabelContract:
-    selection: str
-    minimum_support: int
-    vocabulary: tuple[str, ...]
-    vocabulary_hash: str
-    audit: LabelFitAudit
-
-    def __post_init__(self) -> None:
-        LabelConfig(self.selection, self.minimum_support)
-        if not isinstance(self.vocabulary, tuple) or not self.vocabulary:
-            raise ValueError("vocabulary must be a non-empty tuple")
-        canonical = tuple(
-            _canonical_icd9(label, reject_surrounding_whitespace=True)
-            for label in self.vocabulary
-        )
-        if canonical != tuple(sorted(set(canonical))):
-            raise ValueError("vocabulary must be sorted and unique")
-        if not isinstance(self.vocabulary_hash, str) or _HEX64.fullmatch(
-            self.vocabulary_hash
-        ) is None:
-            raise ValueError("vocabulary_hash must be lowercase SHA-256 hex")
-        if self.vocabulary_hash != _label_vocabulary_digest(canonical):
-            raise ValueError("vocabulary_hash does not match vocabulary")
-        if not isinstance(self.audit, LabelFitAudit) or self.audit.vocabulary_size != len(
-            canonical
-        ):
-            raise ValueError("label fit audit does not match vocabulary")
-
-
-@dataclass(frozen=True, slots=True)
-class LabelTransformAudit:
-    example_count: int
-    unknown_label_count: int
-    examples_with_unknown_labels: int
-
-    def __post_init__(self) -> None:
-        for name, value in (
-            ("example_count", self.example_count),
-            ("unknown_label_count", self.unknown_label_count),
-            ("examples_with_unknown_labels", self.examples_with_unknown_labels),
-        ):
-            _nonnegative_int(name, value)
-        if self.example_count < 1:
-            raise ValueError("example_count must be positive")
-        if self.examples_with_unknown_labels > self.example_count:
-            raise ValueError("unknown-label example count exceeds example count")
-        if (self.unknown_label_count == 0) != (
-            self.examples_with_unknown_labels == 0
-        ):
-            raise ValueError("unknown-label audit counts are inconsistent")
-
-
-@dataclass(frozen=True, slots=True)
-class EncodedLabels:
-    rows: tuple[tuple[int, ...], ...]
-    vocabulary_hash: str
-    audit: LabelTransformAudit
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.rows, tuple) or not self.rows:
-            raise ValueError("encoded label rows must be a non-empty tuple")
-        if not isinstance(self.audit, LabelTransformAudit) or self.audit.example_count != len(
-            self.rows
-        ):
-            raise ValueError("encoded label audit does not match rows")
-        if not isinstance(self.vocabulary_hash, str) or _HEX64.fullmatch(
-            self.vocabulary_hash
-        ) is None:
-            raise ValueError("vocabulary_hash must be lowercase SHA-256 hex")
-        if any(not isinstance(row, tuple) or not row for row in self.rows):
-            raise ValueError("encoded label rows must be non-empty tuples")
-        width = len(self.rows[0])
-        if any(len(row) != width for row in self.rows):
-            raise ValueError("encoded label rows must have a stable width")
-        if any(type(item) is not int or item not in (0, 1) for row in self.rows for item in row):
-            raise ValueError("encoded label rows must contain binary integers")
-
+# ── tokenization contracts ─────────────────────────────────────────────────────
 
 @dataclass(frozen=True, slots=True)
 class TokenizerConfig:
@@ -456,24 +344,31 @@ class TokenizerConfig:
     padding: str
 
     def __post_init__(self) -> None:
-        _require_nonempty_string("identifier", self.identifier)
-        _require_nonempty_string("revision", self.revision)
-        if self.identifier != self.identifier.strip():
-            raise ValueError("identifier must be canonical")
-        if self.revision != self.revision.strip() or not _tokenizer_revision_valid(
-            self.identifier, self.revision
-        ):
-            raise ValueError("revision must be an immutable content address or synthetic fixture revision")
-        if (
-            not isinstance(self.maximum_length, int)
-            or isinstance(self.maximum_length, bool)
-            or self.maximum_length < 1
-        ):
-            raise ValueError("maximum_length must be a positive integer")
-        if self.truncation_side not in {"left", "right"}:
-            raise ValueError("truncation_side must be 'left' or 'right'")
-        if self.padding not in {"max_length", "do_not_pad"}:
-            raise ValueError("padding must be 'max_length' or 'do_not_pad'")
+        if not self.revision:
+            raise ValueError("revision must not be empty")
+        is_synthetic = self.identifier.startswith("synthetic-")
+        if is_synthetic:
+            if not (self.revision.startswith("test-") or self.revision.startswith("test:")):
+                raise ValueError(
+                    f"synthetic identifier requires revision starting with 'test-' or 'test:', "
+                    f"got {self.revision!r}"
+                )
+        else:
+            commit_ok = bool(re.match(r"^commit:[0-9a-f]{40}$", self.revision))
+            sha256_ok = bool(re.match(r"^sha256:[0-9a-f]{64}$", self.revision))
+            if not (commit_ok or sha256_ok):
+                raise ValueError(
+                    f"non-synthetic identifier requires revision matching "
+                    f"'commit:<40hex>' or 'sha256:<64hex>', got {self.revision!r}"
+                )
+        if self.truncation_side not in ("right", "left"):
+            raise ValueError(
+                f"truncation_side must be 'right' or 'left', got {self.truncation_side!r}"
+            )
+        if self.padding not in ("max_length", "do_not_pad"):
+            raise ValueError(
+                f"padding must be 'max_length' or 'do_not_pad', got {self.padding!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -489,72 +384,27 @@ class TokenizationAudit:
     total_content_tokens_after: int
     special_tokens_per_example: int
 
-    def __post_init__(self) -> None:
-        TokenizerConfig(
-            identifier=self.tokenizer_identifier,
-            revision=self.tokenizer_revision,
-            maximum_length=self.maximum_length,
-            truncation_side=self.truncation_side,
-            padding=self.padding,
-        )
-        for name, value in (
-            ("example_count", self.example_count),
-            ("truncated_example_count", self.truncated_example_count),
-            ("total_content_tokens_before", self.total_content_tokens_before),
-            ("total_content_tokens_after", self.total_content_tokens_after),
-            ("special_tokens_per_example", self.special_tokens_per_example),
-        ):
-            _nonnegative_int(name, value)
-        if self.example_count < 1:
-            raise ValueError("example_count must be positive")
-        if self.truncated_example_count > self.example_count:
-            raise ValueError("truncated_example_count exceeds example_count")
-        if self.total_content_tokens_after > self.total_content_tokens_before:
-            raise ValueError("content token audit is inconsistent")
-        if self.special_tokens_per_example > self.maximum_length:
-            raise ValueError("special token count exceeds maximum_length")
-        if self.truncated_example_count == 0 and (
-            self.total_content_tokens_before != self.total_content_tokens_after
-        ):
-            raise ValueError("content token audit is inconsistent")
-
 
 @dataclass(frozen=True, slots=True)
 class TokenizedBatch:
-    input_ids: tuple[tuple[int, ...], ...]
-    attention_mask: tuple[tuple[int, ...], ...]
+    input_ids: tuple
+    attention_mask: tuple
     audit: TokenizationAudit
 
     def __post_init__(self) -> None:
-        if not isinstance(self.input_ids, tuple) or not self.input_ids:
-            raise ValueError("token batch cannot be empty")
-        if not isinstance(self.attention_mask, tuple) or len(self.attention_mask) != len(
-            self.input_ids
-        ):
-            raise ValueError("attention mask batch does not match input IDs")
-        if not isinstance(self.audit, TokenizationAudit) or self.audit.example_count != len(
-            self.input_ids
-        ):
-            raise ValueError("tokenization audit does not match batch")
-        for token_ids, mask in zip(self.input_ids, self.attention_mask, strict=True):
-            if (
-                not isinstance(token_ids, tuple)
-                or not token_ids
-                or not isinstance(mask, tuple)
-                or len(mask) != len(token_ids)
-            ):
-                raise ValueError("attention mask row does not match token IDs")
-            if any(type(item) is not int or item < 0 for item in token_ids):
-                raise ValueError("token IDs must be non-negative integers")
-            if any(type(item) is not int or item not in (0, 1) for item in mask):
-                raise ValueError("attention masks must contain binary integers")
-            if len(token_ids) > self.audit.maximum_length:
-                raise ValueError("token row exceeds maximum_length")
-            if self.audit.padding == "max_length" and len(token_ids) != self.audit.maximum_length:
-                raise ValueError("max_length padding produced an invalid row length")
-        observed_content_tokens = sum(
-            sum(mask) - self.audit.special_tokens_per_example
-            for mask in self.attention_mask
-        )
-        if observed_content_tokens != self.audit.total_content_tokens_after:
-            raise ValueError("tokenization audit does not match attention masks")
+        if len(self.input_ids) != len(self.attention_mask):
+            raise ValueError(
+                f"input_ids has {len(self.input_ids)} rows but "
+                f"attention_mask has {len(self.attention_mask)} rows"
+            )
+        for i, (ids_row, mask_row) in enumerate(zip(self.input_ids, self.attention_mask)):
+            if len(ids_row) != len(mask_row):
+                raise ValueError(
+                    f"row {i}: input_ids length {len(ids_row)} != "
+                    f"attention_mask length {len(mask_row)}"
+                )
+        if self.audit.example_count != len(self.input_ids):
+            raise ValueError(
+                f"audit.example_count={self.audit.example_count} != "
+                f"len(input_ids)={len(self.input_ids)}"
+            )
