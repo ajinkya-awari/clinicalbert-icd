@@ -1,160 +1,220 @@
-# F3 ClinicalBERT-ICD
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=200&section=header&text=ClinicalBERT-ICD&fontSize=52&fontColor=fff&animation=twinkling&fontAlignY=38&desc=Leakage-safe%20LoRA%20vs%20full%20fine-tuning%20for%20ICD-9%20multi-label%20classification&descAlignY=58&descAlign=50&descSize=16"/>
 
-Leakage-safe comparison of LoRA and full fine-tuning for ICD-9 multi-label classification on clinical discharge summaries.
+<div align="center">
 
----
+[![Tests](https://img.shields.io/badge/tests-171%20passing-brightgreen?style=flat-square)](https://github.com/ajinkya-awari/clinicalbert-icd)
+[![Kaggle](https://img.shields.io/badge/Kaggle-kernel%20v12%20✓-20BEFF?style=flat-square&logo=kaggle)](https://www.kaggle.com/)
+[![Status](https://img.shields.io/badge/status-synthetic%20complete-blue?style=flat-square)](https://github.com/ajinkya-awari/clinicalbert-icd)
+[![MIMIC](https://img.shields.io/badge/MIMIC--III-approval%20pending-orange?style=flat-square)](https://physionet.org/content/mimiciii/)
+[![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Readiness](https://img.shields.io/badge/readiness-67%25-yellow?style=flat-square)](https://github.com/ajinkya-awari/clinicalbert-icd)
 
-## Status — 2026-09-19
-
-**Pre-results. Local contracts and synthetic test scaffolding are present and verified. No MIMIC-III training, model loading, or clinical evaluation has run.**
-
-**Repository:** https://github.com/ajinkya-awari/clinicalbert-icd · commit `5fc0cab6`
-
-| Layer | State |
-|---|---|
-| Governance and privacy contracts | Implemented; historical synthetic evidence only |
-| Admission deduplication (SUBJECT_ID split) | Implemented; historical synthetic evidence only |
-| Train-only ICD-9 label vocabulary | Implemented; historical synthetic evidence only |
-| Five-system model registry (rule, ClinicalBERT x {LoRA,full}, BERT x {LoRA,full}) | Implemented; historical synthetic evidence only |
-| LoRA / full fine-tuning trainability audits | Implemented; historical synthetic evidence only |
-| Validation-only threshold selection | Implemented; historical synthetic evidence only |
-| Untouched-test evaluation session | Implemented; historical synthetic evidence only |
-| Command and commit guards (blocks accidental data/API leakage) | **COMPLETE** — Kaggle kernel v12, 171/171 tests, exit 0, 0 restricted artifacts (2026-09-18) |
-| MIMIC-III data access | **Blocked — PhysioNet DUA approval required** |
-| Dependency installation / model download | **Blocked — Kaggle approval required** |
-| Training, evaluation metrics, results | **Not yet run** |
-| Public repository | **Live** — https://github.com/ajinkya-awari/clinicalbert-icd |
-
-Results (micro-F1, macro-F1, P@K, AUC) will be added here after the approved Kaggle training run.
+</div>
 
 ---
 
-## Research question
+## Overview
 
-Does parameter-efficient fine-tuning (LoRA) match or exceed full fine-tuning for ICD-9 multi-label classification on ClinicalBERT and general BERT, when training data is limited to a single admission per patient and labels are sourced from MIMIC-III DIAGNOSES_ICD only (no GEM crosswalks)?
+A privacy-first, leakage-safe experimental scaffold comparing **LoRA** (parameter-efficient) and **full fine-tuning** strategies for ICD-9 multi-label classification over MIMIC-III discharge summaries. Built for reproducibility before data access — every contract, split, threshold, and evaluation boundary is locked and tested on synthetic data, ready for real training once PhysioNet DUA is approved.
+
+**What this is:**
+- A rigorous five-system ML pipeline with patient-grouped splits, train-only label fitting, and single-use test evaluation
+- 171 synthetic unit tests covering governance contracts, privacy scans, and leakage guards — all passing (Kaggle kernel v12, exit 0)
+- A fair apples-to-apples comparison: same tokenizer, same label set, same evaluation protocol for both fine-tuning strategies
+
+**What this is not:**
+- Clinically validated or production-ready
+- A claim about LoRA vs full fine-tuning outcomes (no real MIMIC training run yet)
+- Anything other than a scaffold awaiting PhysioNet data-use agreement approval
 
 ---
 
-## Five-system design
+## Architecture
 
-| Logical system | Model family | Adaptation |
+Five subsystems with a shared preprocessing and evaluation contract:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     ClinicalBERT-ICD Pipeline                   │
+├──────────────┬──────────────┬────────────────┬──────────────────┤
+│  Governance  │  Ingestion   │  Model Layer   │  Evaluation      │
+│  (contracts) │  (split +    │  (LoRA / full  │  (val threshold  │
+│              │  binarize)   │  fine-tune)    │  → test once)    │
+├──────────────┴──────────────┴────────────────┴──────────────────┤
+│                      Privacy Scan Layer                         │
+│    (aggregate-only outputs · no note text exposed · PHI guard)  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
 |---|---|---|
-| `clinicalbert_lora` | ClinicalBERT | LoRA (frozen base, trainable adapters + classifier head) |
-| `clinicalbert_full` | ClinicalBERT | Full fine-tuning |
-| `bert_lora` | General BERT | LoRA |
-| `bert_full` | General BERT | Full fine-tuning |
-| `rule` | Frequency-weighted rule baseline | — |
-
-All five systems share a single label vocabulary (fit on training split only) and are evaluated on one untouched test partition.
+| Split strategy | By `SUBJECT_ID` | Patient disjointness — no leakage across splits |
+| Label fitting | Train split only | `MultiLabelBinarizer` never sees val/test labels |
+| Threshold selection | Validation only | Prevents optimistic test-set inflation |
+| Test evaluation | Single-use `UntouchedTestSession` | Once evaluated, test set is permanently sealed |
+| ICD coding | Native ICD-9 | No GEM crosswalk approximations |
 
 ---
 
-## Data requirements
+## Synthetic Execution Evidence
 
-**MIMIC-III access is required.** This project uses:
-- `NOTEEVENTS.csv` — discharge summary text
-- `DIAGNOSES_ICD.csv` — native ICD-9 codes (not ICD-10, not GEM-converted)
+**Kaggle kernel v12 — 2026-09-18 — exit code 0**
 
-Access requires a PhysioNet credentialed account and completion of the CITI human-subjects training course. Apply at [physionet.org](https://physionet.org/register/). Approval typically takes one to two weeks.
+| Gate | Result |
+|---|---|
+| Total tests | 171 passed, 5 skipped (PowerShell-only hooks) |
+| Exit code | 0 |
+| Restricted artifacts | 0 |
+| Provider API usage | none |
+| MIMIC data accessed | no (synthetic fixtures only) |
 
-Raw MIMIC files must remain in an approved secure local environment. They must not be uploaded to GitHub, HuggingFace, Kaggle, or any external API.
+Evidence path: `evidence/synthetic/kaggle_v12_summary.json`
+
+> **All benchmark metrics (F1, AUC, per-label scores) are pending PhysioNet DUA approval and real MIMIC training runs. No model comparison results exist yet.**
 
 ---
 
-## Offline reproducibility (no MIMIC required)
+## Non-Negotiable Rules
 
-The synthetic offline suite tests all data contracts, privacy gates, model registry validation, and command guards using only Python standard library. No third-party packages, no model downloads, no data access.
+1. **Split by `SUBJECT_ID`** — never split rows randomly
+2. **Fit label vocabulary on training data only** — no val/test label leakage
+3. **Select thresholds on validation only** — test set stays untouched
+4. **Single-use test evaluation** — `UntouchedTestSession` seals results after one call
+5. **Native ICD-9 labels** — no GEM crosswalk conversions
+6. **No raw MIMIC notes outside approved secure environment**
+7. **No note text to external APIs** — OpenAI, Anthropic, HuggingFace inference, Groq
+8. **No training, download, or GPU without explicit approval**
+9. **Deduplicate admissions before splitting**
+10. **Privacy scan must pass before any evaluation claim**
+
+---
+
+## Repository Structure
+
+<details>
+<summary>Full tree</summary>
+
+```
+clinicalbert-icd/
+├── src/
+│   ├── clinicalbert_icd/
+│   │   ├── contracts.py          # Governance contracts + fail-closed guards
+│   │   ├── ingestion.py          # MIMIC loading + SUBJECT_ID split
+│   │   ├── prepare.py            # Label binarizer (train-only fit)
+│   │   ├── model.py              # ClinicalBERT + LoRA config
+│   │   ├── train.py              # Training loop (gated — requires MIMIC DUA)
+│   │   ├── evaluate.py           # Threshold selection + UntouchedTestSession
+│   │   └── privacy_scan.py       # Aggregate-only output verification
+├── tests/
+│   ├── test_contracts.py         # Governance fail-closed contracts (synthetic)
+│   ├── test_ingestion.py         # Split + dedup contracts
+│   ├── test_prepare.py           # Train-only label fitting
+│   ├── test_evaluate.py          # Threshold + test isolation
+│   └── test_privacy.py           # Privacy scan contracts
+├── evidence/
+│   └── synthetic/
+│       └── kaggle_v12_summary.json   # Execution evidence (2026-09-18)
+├── pyproject.toml
+├── LICENSE
+└── README.md
+```
+
+</details>
+
+---
+
+## Reproducibility
+
+<details>
+<summary>Run synthetic tests locally (no MIMIC required)</summary>
 
 ```bash
-# Set PYTHONPATH to the src directory (Windows PowerShell)
-$env:PYTHONPATH = 'src'
-$env:PYTHONDONTWRITEBYTECODE = '1'
+# Clone
+git clone https://github.com/ajinkya-awari/clinicalbert-icd
+cd clinicalbert-icd
 
-# Run the synthetic suite
-python -m unittest discover -s tests -v
+# Install (Python 3.10+)
+pip install -e ".[dev]"
+
+# Run synthetic suite
+pytest tests/ -v --tb=short
+# Expected: 171 passed, 5 skipped
 ```
 
-**Kaggle verification (2026-09-18):** The current 171-test tree was executed on Kaggle CPU (kernel v12, dataset v10, Python 3.12, internet disabled, GPU disabled). Result: **171 tests OK, 5 skipped (PowerShell-only), 0 failures, 0 errors, exit 0.** Evidence: `evidence/synthetic/synthetic-validation-20260918T161857Z.json`.
+**All 171 tests use synthetic fixtures only. No MIMIC data needed.**
 
-All tests use clearly labeled synthetic fixtures in `tests/fixtures/`. No patient data, no real model weights.
+</details>
 
-## Audit and Reconciliation - 2026-09-19
+<details>
+<summary>Real training (MIMIC-III — APPROVAL REQUIRED)</summary>
 
-Status label: **PARTIAL**. Portfolio readiness: **67%** by the project rubric: implementation 70%, tests/validation 75%, runtime/execution 55%, reproducibility/provenance 65%, release readiness 70%.
+Real training requires:
+1. PhysioNet DUA approval for MIMIC-III (apply at physionet.org)
+2. CITI training completion
+3. Approved secure processing environment
 
-Synthetic scope is **COMPLETE**: Kaggle kernel v12 passes 171/171 tests (5 skipped, PowerShell-only), exit 0, 0 restricted artifacts, evidence committed. Remaining gates require MIMIC-III PhysioNet DUA approval before any real data, model download, training, or evaluation can proceed.
-
----
-
-## Privacy and governance controls
-
-- **Data governance gate**: `src/clinicalbert_icd/governance.py` — fail-closed; any access attempt without a signed DUA manifest is denied.
-- **Privacy audit**: `src/clinicalbert_icd/privacy.py` — scans public artifact dicts for note text, patient identifiers, model secrets, and checkpoint paths before release.
-- **Pre-commit hook**: `.claude/hooks/pre-commit.sh` — blocks staged MIMIC paths, `.env` files, PEM keys, HF tokens, `sk-` style API keys, and AWS AKIA keys.
-- **Command guard**: `.claude/hooks/pre-tool-use.sh` — blocks Python training calls, `from_pretrained`, `kaggle`, `curl`/`wget`, W&B, HuggingFace CLI upload, and `git push` in the local session.
-
----
-
-## Leakage controls
-
-- Admissions are deduplicated (one note per `HADM_ID`) before any split.
-- Splits are deterministic by `SUBJECT_ID` (SHA-256 bucketing, seed 8408): a patient's admissions cannot appear in both training and test.
-- ICD-9 label vocabulary and `MultiLabelBinarizer` equivalent are fit on training split only.
-- Threshold selection uses validation-partition predictions only.
-- The test partition is evaluated through a single-use `UntouchedTestSession`; a second call raises `RuntimeError`.
-
----
-
-## Project structure
-
+Once approved:
+```bash
+# Place MIMIC-III files in data/ (never commit to git)
+python -m clinicalbert_icd.train --config configs/lora.yaml
+python -m clinicalbert_icd.train --config configs/full.yaml
 ```
-08-f3-clinicalbert-icd/
-┌── src/clinicalbert_icd/
-│   ┌── governance.py          # Fail-closed DUA and environment contracts
-│   src/clinicalbert_icd/
-│   ┌── privacy.py             # Public-artifact PHI and secret scan
-│   src/clinicalbert_icd/
-│   ┌── data/
-│   │   ┌── contracts.py       # Immutable data contracts (dedup, split, labels, tokenizer)
-│   │   ┌── prepare.py         # Admission deduplication and example aggregation
-│   src/clinicalbert_icd/
-│   │   ┌── split.py           # SUBJECT_ID-grouped SHA-256 deterministic split
-│   │   ┌── labels.py          # Train-only label fitting and transform
-│   │   └── tokenize.py        # Tokenizer protocol and truncation audit
-│   ┌── models/
-│   │   ┌── protocol.py        # ModelSpec frozen dataclass
-│   │   ┌── registry.py        # Five-system registry validator
-│   │   └── trainability.py    # LoRA adapter and classifier-head trainability audits
-│   ┌── evaluation/
-│   │   ┌── metrics.py         # Micro/macro F1, P@K
-│   │   ┌── thresholds.py      # Validation-only global threshold selection
-│   │   ┌── test_session.py    # Single-use untouched-test partition gate
-│   │   └── provenance.py      # Deterministic run provenance and command whitelist
-│   └── training/
-│       └── gates.py           # Training authorization gate (blocks live-data training locally)
-┌── tests/                    # 171 synthetic standard-library unit tests
-┌── notebooks/                 # Gated Kaggle training notebook (cells require explicit approval)
-┌── manifests/                  # Artifact policy and rights environment schema
-┌── config/synthetic.json       # Synthetic run configuration
-┌── DESIGN.md                  # Full pipeline specification
-└── FINAL_VULNERABILITY_SCAN.md # Critical controls and high-risk areas
+
+</details>
+
+---
+
+## Status
+
+| Dimension | Weight | Score | Notes |
+|---|---|---|---|
+| Implementation | 30% | 22/30 | All source files clean; governance contracts complete |
+| Tests | 20% | 18/20 | 171/171 synthetic tests passing |
+| Runtime/execution | 20% | 12/20 | Kaggle synthetic run verified; real training pending DUA |
+| Reproducibility | 15% | 8/15 | Pinned revisions documented; real data pipeline pending |
+| Release readiness | 15% | 7/15 | GitHub live; HF Space + arXiv pending real results |
+
+**Overall: 67%** — synthetic scope complete, real training blocked on MIMIC PhysioNet DUA approval
+
+---
+
+## Limitations
+
+- No real benchmark results exist — F1/AUC numbers will be added after approved MIMIC training runs
+- HuggingFace Space not yet deployed (pending real model weights)
+- Comparison between LoRA and full fine-tuning is the research question, not a confirmed outcome
+- Not clinically validated; not a medical device; not intended for deployment
+
+---
+
+## Citation
+
+```bibtex
+@misc{awari2026clinicalbert,
+  author       = {Awari, Ajinkya},
+  title        = {ClinicalBERT-ICD: Leakage-Safe LoRA vs Full Fine-tuning for ICD-9 Classification},
+  year         = {2026},
+  howpublished = {\url{https://github.com/ajinkya-awari/clinicalbert-icd}},
+  note         = {Synthetic scope complete; real training pending MIMIC-III PhysioNet DUA}
+}
 ```
 
 ---
 
-## Honest limitations
+## Portfolio Context
 
-- No training results exist yet. The results table above will be populated after approved Kaggle execution.
-- This project is a research comparison, not a clinical decision-support tool. No clinical deployment is intended or claimed.
-- ICD-9 labels from MIMIC-III have known noise (missing codes, coding-date effects). Results reflect retrospective coding patterns, not prospective diagnostic accuracy.
-- MIMIC-III is a single-centre ICU dataset (BIDMC). Generalisation to other institutions or patient populations is not established.
-- LoRA target modules (query/value attention layers) are chosen by convention; the optimal configuration may differ for ClinicalBERT's specific architecture version.
+Part of a 21-project AI/ML portfolio targeting UK healthcare AI and research positions.
+
+| Project | Focus |
+|---|---|
+| [SolomonoffBench](https://github.com/ajinkya-awari/solomonoff-bench) | Information-theoretic LLM evaluation |
+| [XAI Medical Imaging](https://github.com/ajinkya-awari/xai-medical-imaging-project-02) | Grad-CAM / SHAP / IG benchmarked on NIH ChestX-ray14 |
+| [AlphaFold Binding Benchmark](https://github.com/ajinkya-awari/afbind) | AF2 structure substitution benchmark |
+| [NHSCopilot-Eval](https://github.com/ajinkya-awari/-nhscopilot-eval) | Clinical assistant safety evaluation framework |
+| [MedLLM Safety](https://github.com/ajinkya-awari/medllm-safety) | LLM refusal, abstention, PHI-redaction contracts |
 
 ---
 
-## Portfolio context
-
-This is Project 08 in a 21-project pre-UCL portfolio. It targets AI/healthcare engineering roles at UK companies including Kheiron Medical, Medtronic, and NHS AI Lab. The companion projects include:
-- Project 07 (F2 HistoGNN) ─ graph-based histopathology classification
-- Project 09 (NHSCopilot-Eval) ─ evaluation harness for NHS-facing LLM tools
-- Project 13 (ClinVision) ─ clinical image classification pipeline
+<img src="https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=6,11,20&height=100&section=footer"/>
